@@ -5,7 +5,7 @@
 -->
 <configuration>
 
-    <property name="LOG_DIR" value="/var/log/supply-chain"/>
+    <property name="LOG_DIR" value="${LOG_DIR:-./logs}"/>
     <property name="APP_NAME" value="supply-chain-management"/>
 
     <!-- ==================== Console Appender ==================== -->

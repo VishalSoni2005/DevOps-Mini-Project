@@ -48,6 +48,9 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
 
+# Set default log directory in container
+ENV LOG_DIR=/var/log/supply-chain
+
 # JVM tuning for containerized environments
 ENV JAVA_OPTS="-XX:+UseContainerSupport \
     -XX:MaxRAMPercentage=75.0 \
