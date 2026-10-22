@@ -1,0 +1,17 @@
+# ============================================
+# Application ConfigMap
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supply-chain-config
+  namespace: supply-chain
+  labels:
+    app: supply-chain-app
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  SERVER_PORT: "8080"
+  LOGGING_LEVEL_COM_SUPPLYCHAIN: "INFO"
+  # Logstash endpoint for centralized logging
+  LOGSTASH_HOST: "logstash-service.elk.svc.cluster.local"
+  LOGSTASH_PORT: "5044"

@@ -1,0 +1,188 @@
+# ============================================
+# Logstash ConfigMap (Pipeline Configuration)
+# ============================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-pipeline
+  namespace: elk
+data:
+  logstash.conf: |
+    # ──────────────────────────────────────────────
+    # INPUT: Receive logs from Filebeat and direct TCP
+    # ──────────────────────────────────────────────
+    input {
+      # Beats input (from Filebeat DaemonSet)
+      beats {
+        port => 5044
+        type => "application"
+      }
+
+      # Direct TCP input for JSON logs
+      tcp {
+        port => 5000
+        codec => json_lines
+        type => "direct"
+      }
+    }
+
+    # ──────────────────────────────────────────────
+    # FILTER: Parse and enrich log events
+    # ──────────────────────────────────────────────
+    filter {
+      # Parse JSON if the message is JSON
+      if [message] =~ /^\{/ {
+        json {
+          source => "message"
+          target => "parsed"
+        }
+      }
+
+      # Extract structured fields from log messages
+      if [message] {
+        # Extract event types (e.g., ORDER_EVENT, INVENTORY_EVENT)
+        grok {
+          match => {
+            "message" => [
+              "%{WORD:event_category}_%{WORD:event_type}: action=%{WORD:action}",
+              "%{WORD:alert_type}_ALERT: component=%{WORD:component}"
+            ]
+          }
+          tag_on_failure => ["_grok_parse_failure"]
+        }
+      }
+
+      # Classify log severity for dashboard filtering
+      if [level] == "ERROR" or [parsed][level] == "ERROR" {
+        mutate { add_field => { "severity" => "error" } }
+      } else if [level] == "WARN" or [parsed][level] == "WARN" {
+        mutate { add_field => { "severity" => "warning" } }
+      } else {
+        mutate { add_field => { "severity" => "info" } }
+      }
+
+      # Add environment metadata
+      mutate {
+        add_field => {
+          "environment" => "production"
+          "pipeline"    => "supply-chain-management"
+        }
+      }
+
+      # Parse timestamps
+      date {
+        match => ["timestamp", "ISO8601", "yyyy-MM-dd HH:mm:ss.SSS"]
+        target => "@timestamp"
+      }
+
+      # Remove unnecessary fields
+      mutate {
+        remove_field => ["host", "agent", "ecs"]
+      }
+    }
+
+    # ──────────────────────────────────────────────
+    # OUTPUT: Send to Elasticsearch with index routing
+    # ──────────────────────────────────────────────
+    output {
+      elasticsearch {
+        hosts => ["http://elasticsearch-service.elk.svc.cluster.local:9200"]
+        index => "supply-chain-logs-%{+YYYY.MM.dd}"
+        template_name => "supply-chain-logs"
+      }
+
+      # Separate index for errors (faster querying)
+      if [severity] == "error" {
+        elasticsearch {
+          hosts => ["http://elasticsearch-service.elk.svc.cluster.local:9200"]
+          index => "supply-chain-errors-%{+YYYY.MM.dd}"
+        }
+      }
+
+      # Debug output (disable in production)
+      stdout {
+        codec => rubydebug
+      }
+    }
+
+---
+# ============================================
+# Logstash Deployment
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logstash
+  namespace: elk
+  labels:
+    app: logstash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logstash
+  template:
+    metadata:
+      labels:
+        app: logstash
+    spec:
+      containers:
+        - name: logstash
+          image: docker.elastic.co/logstash/logstash:8.12.0
+          ports:
+            - containerPort: 5044
+              name: beats
+            - containerPort: 5000
+              name: tcp
+            - containerPort: 9600
+              name: api
+          env:
+            - name: LS_JAVA_OPTS
+              value: "-Xms256m -Xmx256m"
+            - name: PIPELINE_WORKERS
+              value: "2"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: pipeline-config
+              mountPath: /usr/share/logstash/pipeline
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9600
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: pipeline-config
+          configMap:
+            name: logstash-pipeline
+
+---
+# Logstash Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: logstash-service
+  namespace: elk
+  labels:
+    app: logstash
+spec:
+  type: ClusterIP
+  selector:
+    app: logstash
+  ports:
+    - name: beats
+      port: 5044
+      targetPort: 5044
+    - name: tcp
+      port: 5000
+      targetPort: 5000
+    - name: api
+      port: 9600
+      targetPort: 9600

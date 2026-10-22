@@ -1,0 +1,10 @@
+# ============================================
+# ELK Stack Namespace
+# ============================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elk
+  labels:
+    stack: elk
+    purpose: centralized-logging

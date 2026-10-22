@@ -1,0 +1,52 @@
+# ============================================
+# Filebeat Configuration (Local Development)
+# ============================================
+
+filebeat.inputs:
+  # Application JSON logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/supply-chain/application.json
+    json.keys_under_root: true
+    json.add_error_key: true
+    json.message_key: message
+    fields:
+      log_type: application
+      source: supply-chain-management
+    fields_under_root: true
+
+  # Error logs (dedicated)
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/supply-chain/error.json
+    json.keys_under_root: true
+    json.add_error_key: true
+    fields:
+      log_type: error
+      source: supply-chain-management
+    fields_under_root: true
+
+  # Docker container logs
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+
+# Processors
+processors:
+  - add_host_metadata: ~
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "agent.id", "agent.version"]
+
+# Output to Logstash
+output.logstash:
+  hosts: ["logstash:5044"]
+  bulk_max_size: 2048
+
+# Logging
+logging.level: info
+logging.to_files: false

@@ -1,0 +1,93 @@
+# ============================================
+# Application Deployment
+# ============================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supply-chain-app
+  namespace: supply-chain
+  labels:
+    app: supply-chain-app
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: supply-chain-app
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: supply-chain-app
+        version: v1
+      annotations:
+        # Prometheus scraping (if enabled)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      containers:
+        - name: supply-chain-app
+          # IMAGE_PLACEHOLDER is replaced by the Jenkins pipeline
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # Environment from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: supply-chain-config
+
+          # Resource limits
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # Liveness probe — restarts pod if unhealthy
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe — removes pod from service if not ready
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Volume mount for application logs
+          volumeMounts:
+            - name: log-volume
+              mountPath: /var/log/supply-chain
+
+      volumes:
+        - name: log-volume
+          emptyDir: {}
+
+      # Spread pods across nodes
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: supply-chain-app
